@@ -1,6 +1,5 @@
 package com.kilocade.bubbleshooter;
 
-import com.kilocade.bubbleshooter.GameController;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;

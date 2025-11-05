@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Run BubbleShooter (Gradle)",
+            "request": "launch",
+            "mainClass": "com.kilocade.bubbleshooter.Main",
+            "projectName": "BubbleShooter",
+            "vmArgs": "--module-path ${workspaceFolder}/build/install/BubbleShooter/lib --add-modules javafx.controls,javafx.graphics,javafx.base",
+            "modulePaths": [
+                "${workspaceFolder}/build/install/BubbleShooter/lib"
+            ],
+            "classPaths": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "gradle: installDist"
+        },
+        {
+            "type": "java",
+            "name": "Run BubbleShooter (Module)",
+            "request": "launch",
+            "mainClass": "com.kilocade.bubbleshooter/com.kilocade.bubbleshooter.Main",
+            "projectName": "BubbleShooter",
+            "vmArgs": "--module-path ${workspaceFolder}/build/install/BubbleShooter/lib --add-modules javafx.controls,javafx.graphics,javafx.base",
+            "modulePaths": [
+                "${workspaceFolder}/build/install/BubbleShooter/lib"
+            ],
+            "classPaths": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "gradle: installDist"
+        }
+    ]
+}

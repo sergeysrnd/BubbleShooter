@@ -14,11 +14,6 @@ repositories {
     mavenCentral()
 }
 
-dependencies {
-    implementation("org.openjfx:javafx-controls:21.0.2")
-    implementation("org.openjfx:javafx-graphics:21.0.2")
-    implementation("org.openjfx:javafx-base:21.0.2")
-}
 
 application {
     mainModule.set("com.kilocade.bubbleshooter")
@@ -27,12 +22,9 @@ application {
 
 javafx {
     version = "21.0.2"
-    modules = listOf("javafx.base", "javafx.controls", "javafx.graphics")
+    modules = listOf("javafx.controls", "javafx.graphics", "javafx.base")
 }
 
-tasks.withType<org.gradle.api.tasks.JavaExec>().configureEach {
-    modularity.inferModulePath.set(true)
-}
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
