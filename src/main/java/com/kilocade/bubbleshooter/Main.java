@@ -1,12 +1,12 @@
 package com.kilocade.bubbleshooter;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 
 /**
- * Entry point for the Bubble Shooter prototype.
- * Sets up the primary window and delegates lifecycle management to {@link GameController}.
+ * Entry point for Comet Bloom.
  */
 public class Main extends Application {
 
@@ -17,10 +17,13 @@ public class Main extends Application {
         controller = new GameController();
         Scene scene = controller.createScene();
 
-        stage.setTitle("Bubble Shooter Prototype");
+        stage.setTitle("Comet Bloom");
         stage.setScene(scene);
-        stage.setResizable(false);
+        stage.setMinWidth(760);
+        stage.setMinHeight(760);
+        stage.setResizable(true);
         stage.show();
+        Platform.runLater(controller::refreshLayout);
 
         controller.start();
     }

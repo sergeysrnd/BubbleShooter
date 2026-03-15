@@ -1,6 +1,6 @@
 @echo off
 echo Building and running BubbleShooter...
-gradle installDist
+call gradlew.bat installDist
 if %ERRORLEVEL% NEQ 0 (
     echo Build failed!
     pause

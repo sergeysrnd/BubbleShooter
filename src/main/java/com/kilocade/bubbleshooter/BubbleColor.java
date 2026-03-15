@@ -6,11 +6,12 @@ import javafx.scene.paint.Color;
  * Supported bubble colors and their JavaFX {@link Color} mapping.
  */
 public enum BubbleColor {
-    RED(Color.web("#e74c3c")),
-    GREEN(Color.web("#27ae60")),
-    BLUE(Color.web("#2980b9")),
-    YELLOW(Color.web("#f1c40f")),
-    PURPLE(Color.web("#8e44ad"));
+    ROSE(Color.web("#ff6b8a")),
+    LIME(Color.web("#7ae582")),
+    AZURE(Color.web("#5bc0ff")),
+    GOLD(Color.web("#ffd166")),
+    VIOLET(Color.web("#c77dff")),
+    TEAL(Color.web("#4fffd8"));
 
     private final Color fxColor;
 
@@ -34,13 +35,6 @@ public enum BubbleColor {
      * @return bubble color at the provided index.
      */
     public static BubbleColor fromIndex(int index) {
-        return switch (Math.floorMod(index, values().length)) {
-            case 0 -> RED;
-            case 1 -> GREEN;
-            case 2 -> BLUE;
-            case 3 -> YELLOW;
-            case 4 -> PURPLE;
-            default -> throw new IllegalStateException("Unexpected index");
-        };
+        return values()[Math.floorMod(index, values().length)];
     }
 }

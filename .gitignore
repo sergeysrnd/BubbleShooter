@@ -1,0 +1,15 @@
+# Gradle build output and local caches
+.gradle/
+build/
+bin/
+out/
+
+# IDE metadata
+.idea/
+.classpath
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
