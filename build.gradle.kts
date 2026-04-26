@@ -8,6 +8,9 @@ version = "1.0.0"
 
 java {
     modularity.inferModulePath.set(true)
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
 }
 
 repositories {

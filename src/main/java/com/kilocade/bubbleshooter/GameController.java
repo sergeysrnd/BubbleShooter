@@ -18,7 +18,6 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -48,6 +47,12 @@ public final class GameController {
     private static final double CANNON_BOTTOM_MARGIN = 78.0;
     private static final double DANGER_MARGIN = 108.0;
     private static final double GUIDE_SLICE_SECONDS = 0.012;
+    private static final double HUD_TEXT_WIDTH = 340.0;
+    private static final double HUD_OBJECTIVE_HEIGHT = 18.0;
+    private static final double HUD_STATUS_HEIGHT = 34.0;
+    private static final double HUD_STAT_WIDTH = 84.0;
+    private static final double HUD_AMMO_WIDTH = 78.0;
+    private static final double HUD_BUTTON_WIDTH = 108.0;
     private static final int GRID_COLUMNS = 16;
     private static final int MISSES_PER_DROP = 6;
     private static final int BACKDROP_STARS = 56;
@@ -124,7 +129,7 @@ public final class GameController {
     }
 
     public Scene createScene() {
-        root.setStyle("-fx-background-color: #081019;");
+        root.setStyle("-fx-background-color: #050a12;");
         root.setTop(buildHud());
 
         playfield.setMinSize(720, 560);
@@ -132,7 +137,7 @@ public final class GameController {
         playfield.prefHeightProperty().bind(centerPane.heightProperty());
         playfield.getChildren().addAll(backdropLayer, bubbleLayer, guideLayer, cannonLayer, overlayLayer);
 
-        centerPane.setPadding(new Insets(0, 18, 18, 18));
+        centerPane.setPadding(new Insets(0, 14, 14, 14));
         centerPane.getChildren().add(playfield);
         root.setCenter(centerPane);
 
@@ -205,81 +210,130 @@ public final class GameController {
 
     private VBox buildHud() {
         titleLabel.setTextFill(Color.web("#eff7ff"));
-        titleLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 30));
+        titleLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 28));
 
         stageLabel.setTextFill(Color.web("#9ad9ff"));
-        stageLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 18));
+        stageLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 16));
 
-        objectiveLabel.setTextFill(Color.web("#dde8f7"));
+        objectiveLabel.setTextFill(Color.web("#b8cde2"));
         objectiveLabel.setWrapText(true);
-        objectiveLabel.setFont(Font.font("Verdana", 15));
+        objectiveLabel.setFont(Font.font("Verdana", 13));
+        objectiveLabel.setMinWidth(0);
+        objectiveLabel.setPrefWidth(HUD_TEXT_WIDTH);
+        objectiveLabel.setMaxWidth(HUD_TEXT_WIDTH);
+        objectiveLabel.setMinHeight(HUD_OBJECTIVE_HEIGHT);
+        objectiveLabel.setPrefHeight(HUD_OBJECTIVE_HEIGHT);
+        objectiveLabel.setMaxHeight(HUD_OBJECTIVE_HEIGHT);
 
-        scoreLabel.setTextFill(Color.web("#ffd166"));
-        scoreLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 20));
-
-        comboLabel.setTextFill(Color.web("#ff84c1"));
-        comboLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 18));
-
-        pressureLabel.setTextFill(Color.web("#ffb88c"));
-        pressureLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 18));
-
-        statusLabel.setTextFill(Color.web("#d8e6f8"));
-        statusLabel.setFont(Font.font("Verdana", 14));
+        statusLabel.setTextFill(Color.web("#e6f3ff"));
+        statusLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 13));
         statusLabel.setWrapText(true);
+        statusLabel.setMinWidth(0);
+        statusLabel.setPrefWidth(HUD_TEXT_WIDTH);
+        statusLabel.setMaxWidth(HUD_TEXT_WIDTH);
+        statusLabel.setMinHeight(HUD_STATUS_HEIGHT);
+        statusLabel.setPrefHeight(HUD_STATUS_HEIGHT);
+        statusLabel.setMaxHeight(HUD_STATUS_HEIGHT);
 
-        VBox textColumn = new VBox(6, titleLabel, stageLabel, scoreLabel, comboLabel, pressureLabel, objectiveLabel, statusLabel);
+        VBox textColumn = new VBox(4, titleLabel, stageLabel, objectiveLabel, statusLabel);
         textColumn.setAlignment(Pos.CENTER_LEFT);
+        textColumn.setMinWidth(0);
+        textColumn.setPrefWidth(HUD_TEXT_WIDTH);
+        textColumn.setMaxWidth(HUD_TEXT_WIDTH);
 
-        VBox currentCard = ammoCard("Current", currentPreview, currentLabel);
-        VBox nextCard = ammoCard("Next", nextPreview, nextLabel);
+        VBox scoreChip = statChip("Score", scoreLabel, "#ffd166");
+        VBox comboChip = statChip("Combo", comboLabel, "#ff84c1");
+        VBox pressureChip = statChip("Pressure", pressureLabel, "#ffb88c");
+        HBox stats = new HBox(8, scoreChip, comboChip, pressureChip);
+        stats.setAlignment(Pos.CENTER_LEFT);
+        stats.setMinWidth(0);
+
+        HBox ammoQueue = new HBox(8, ammoCard("Loaded", currentPreview, currentLabel), ammoCard("Queued", nextPreview, nextLabel));
+        ammoQueue.setAlignment(Pos.CENTER);
+        ammoQueue.setMinWidth(0);
 
         restartButton.setOnAction(event -> restartCampaign());
         restartButton.setFocusTraversable(false);
         soundButton.setOnAction(event -> toggleSound());
         soundButton.setFocusTraversable(false);
 
-        styleHudButton(restartButton, "#2a7246", "#cffff0");
-        styleHudButton(soundButton, "#314d78", "#d7ebff");
+        styleHudButton(restartButton, "#207747", "#e6fff4");
+        styleHudButton(soundButton, "#274d86", "#eaf4ff");
 
-        VBox buttonColumn = new VBox(10, restartButton, soundButton);
+        VBox buttonColumn = new VBox(8, restartButton, soundButton);
         buttonColumn.setAlignment(Pos.CENTER_LEFT);
 
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox rightCluster = new HBox(12, ammoQueue, buttonColumn);
+        rightCluster.setAlignment(Pos.CENTER_RIGHT);
+        rightCluster.setMinWidth(0);
 
-        HBox hud = new HBox(18, textColumn, spacer, currentCard, nextCard, buttonColumn);
+        HBox hud = new HBox(20, textColumn, stats, rightCluster);
         hud.setAlignment(Pos.CENTER_LEFT);
-        hud.setPadding(new Insets(16, 18, 16, 18));
-        hud.setStyle("-fx-background-color: linear-gradient(to bottom, #0b1b2b, #0a1624);" +
-                "-fx-border-color: rgba(130,190,255,0.18); -fx-border-width: 0 0 1 0;");
+        hud.setMinWidth(0);
+        hud.setPadding(new Insets(14, 18, 14, 18));
+        hud.setStyle("-fx-background-color: linear-gradient(to bottom, #0a1d2c, #07131f);" +
+                "-fx-border-color: rgba(142,207,255,0.24); -fx-border-width: 0 0 1 0;");
 
         VBox wrapper = new VBox(hud);
         return wrapper;
     }
 
+    private VBox statChip(String titleText, Label valueLabel, String accentColor) {
+        Label title = new Label(titleText);
+        title.setTextFill(Color.web("#9fb7cd"));
+        title.setFont(Font.font("Verdana", FontWeight.BOLD, 10));
+
+        valueLabel.setTextFill(Color.web(accentColor));
+        valueLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 20));
+        valueLabel.setMinWidth(0);
+        valueLabel.setPrefWidth(HUD_STAT_WIDTH - 20);
+        valueLabel.setMaxWidth(HUD_STAT_WIDTH - 20);
+        valueLabel.setAlignment(Pos.CENTER_LEFT);
+
+        VBox chip = new VBox(2, title, valueLabel);
+        chip.setAlignment(Pos.CENTER_LEFT);
+        chip.setPadding(new Insets(8, 10, 8, 10));
+        chip.setMinWidth(HUD_STAT_WIDTH);
+        chip.setPrefWidth(HUD_STAT_WIDTH);
+        chip.setMaxWidth(HUD_STAT_WIDTH);
+        chip.setStyle("-fx-background-color: rgba(255,255,255,0.055);" +
+                "-fx-background-radius: 8; -fx-border-radius: 8;" +
+                "-fx-border-color: rgba(180,222,255,0.16);");
+        return chip;
+    }
+
     private VBox ammoCard(String titleText, Circle preview, Label valueLabel) {
         Label title = new Label(titleText);
-        title.setTextFill(Color.web("#eff7ff"));
-        title.setFont(Font.font("Verdana", FontWeight.BOLD, 15));
+        title.setTextFill(Color.web("#bcd2e8"));
+        title.setFont(Font.font("Verdana", FontWeight.BOLD, 11));
 
-        valueLabel.setTextFill(Color.web("#cfe4ff"));
-        valueLabel.setFont(Font.font("Verdana", 13));
+        valueLabel.setTextFill(Color.web("#f4f9ff"));
+        valueLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 11));
+        valueLabel.setMinWidth(0);
+        valueLabel.setPrefWidth(HUD_AMMO_WIDTH - 18);
+        valueLabel.setMaxWidth(HUD_AMMO_WIDTH - 18);
+        valueLabel.setAlignment(Pos.CENTER);
 
-        VBox box = new VBox(8, title, preview, valueLabel);
+        VBox box = new VBox(6, title, preview, valueLabel);
         box.setAlignment(Pos.CENTER);
-        box.setPadding(new Insets(12));
-        box.setMinWidth(110);
-        box.setStyle("-fx-background-color: rgba(255,255,255,0.04);" +
-                "-fx-background-radius: 16; -fx-border-radius: 16;" +
-                "-fx-border-color: rgba(173,219,255,0.16);");
+        box.setPadding(new Insets(8, 10, 8, 10));
+        box.setMinWidth(HUD_AMMO_WIDTH);
+        box.setPrefWidth(HUD_AMMO_WIDTH);
+        box.setMaxWidth(HUD_AMMO_WIDTH);
+        box.setStyle("-fx-background-color: rgba(255,255,255,0.055);" +
+                "-fx-background-radius: 8; -fx-border-radius: 8;" +
+                "-fx-border-color: rgba(173,219,255,0.18);");
         renderAmmoCircle(preview, null);
         return box;
     }
 
     private void styleHudButton(Button button, String background, String textColor) {
-        button.setStyle("-fx-background-radius: 18; -fx-padding: 10 18 10 18;" +
+        button.setMinWidth(HUD_BUTTON_WIDTH);
+        button.setPrefWidth(HUD_BUTTON_WIDTH);
+        button.setMaxWidth(HUD_BUTTON_WIDTH);
+        button.setStyle("-fx-background-radius: 8; -fx-padding: 9 16 9 16;" +
                 "-fx-background-color: " + background + "; -fx-text-fill: " + textColor + ";" +
-                "-fx-font-family: 'Verdana'; -fx-font-size: 14px; -fx-font-weight: bold;");
+                "-fx-font-family: 'Verdana'; -fx-font-size: 13px; -fx-font-weight: bold;");
     }
 
     private void configureOverlay() {
@@ -405,7 +459,7 @@ public final class GameController {
                     slice,
                     playfieldWidth(),
                     BUBBLE_RADIUS,
-                    grid.anchoredBubbles()
+                    grid.collisionBubbles()
             );
 
             if (result.bounced()) {
@@ -439,19 +493,24 @@ public final class GameController {
         nextAmmo = rollAmmo();
 
         updateHud();
+        updateCannonVisual();
         updateTrajectoryPreview();
         playSound(engine -> engine.playShoot());
     }
 
     private void anchorProjectile(Bubble impactBubble, Bubble.GridPosition anchorHint) {
+        Optional<Bubble> anchored = grid.snapBubble(impactBubble, anchorHint);
+        if (anchored.isEmpty()) {
+            projectile = impactBubble;
+            updateProjectileNode();
+            statusLabel.setText("Shot grazed the cluster. Keep aiming.");
+            updateTrajectoryPreview();
+            return;
+        }
+
         bubbleLayer.getChildren().remove(projectileNode);
         projectileNode = null;
         projectile = null;
-
-        Optional<Bubble> anchored = grid.snapBubble(impactBubble, anchorHint);
-        if (anchored.isEmpty()) {
-            return;
-        }
 
         resolveShot(anchored.orElseThrow());
     }
@@ -564,7 +623,7 @@ public final class GameController {
                     GUIDE_SLICE_SECONDS,
                     playfieldWidth(),
                     BUBBLE_RADIUS,
-                    grid == null ? List.of() : grid.anchoredBubbles()
+                    grid == null ? List.of() : grid.collisionBubbles()
             );
             probe = result.projectile();
 
@@ -639,15 +698,15 @@ public final class GameController {
 
     private void updateHud() {
         stageLabel.setText("Stage " + stageNumber + "  •  " + stageLayout.title());
-        scoreLabel.setText("Score  " + score);
-        comboLabel.setText("Combo  x" + Math.max(1, combo));
-        pressureLabel.setText("Pressure  " + misses + " / " + MISSES_PER_DROP);
+        scoreLabel.setText(String.valueOf(score));
+        comboLabel.setText("x" + Math.max(1, combo));
+        pressureLabel.setText(misses + " / " + MISSES_PER_DROP);
         objectiveLabel.setText(stageLayout.subtitle());
 
         renderAmmoCircle(currentPreview, currentAmmo);
         renderAmmoCircle(nextPreview, nextAmmo);
-        currentLabel.setText(currentAmmo == null ? "empty" : currentAmmo.color().name());
-        nextLabel.setText(nextAmmo == null ? "empty" : nextAmmo.color().name());
+        currentLabel.setText(currentAmmo == null ? "EMPTY" : currentAmmo.displayName());
+        nextLabel.setText(nextAmmo == null ? "EMPTY" : nextAmmo.displayName());
 
         soundButton.setText(soundEnabled ? "Sound: On" : "Sound: Off");
     }

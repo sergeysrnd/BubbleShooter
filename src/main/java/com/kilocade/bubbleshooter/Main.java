@@ -8,30 +8,44 @@ import javafx.stage.Stage;
 /**
  * Entry point for Comet Bloom.
  */
-public class Main extends Application {
+public final class Main extends Application {
+
+    private static final String TITLE = "Comet Bloom";
+    private static final double MIN_STAGE_WIDTH = 760;
+    private static final double MIN_STAGE_HEIGHT = 760;
 
     private GameController controller;
 
     @Override
     public void start(Stage stage) {
-        controller = new GameController();
-        Scene scene = controller.createScene();
+        GameController newController = new GameController();
+        try {
+            Scene scene = newController.createScene();
 
-        stage.setTitle("Comet Bloom");
-        stage.setScene(scene);
-        stage.setMinWidth(760);
-        stage.setMinHeight(760);
-        stage.setResizable(true);
-        stage.show();
-        Platform.runLater(controller::refreshLayout);
+            stage.setTitle(TITLE);
+            stage.setScene(scene);
+            stage.setMinWidth(MIN_STAGE_WIDTH);
+            stage.setMinHeight(MIN_STAGE_HEIGHT);
+            stage.setResizable(true);
+            stage.show();
 
-        controller.start();
+            controller = newController;
+            Platform.runLater(newController::refreshLayout);
+            newController.start();
+        } catch (RuntimeException exception) {
+            newController.stop();
+            Platform.exit();
+            throw exception;
+        }
     }
 
     @Override
     public void stop() {
-        if (controller != null) {
-            controller.stop();
+        GameController activeController = controller;
+        controller = null;
+
+        if (activeController != null) {
+            activeController.stop();
         }
     }
 

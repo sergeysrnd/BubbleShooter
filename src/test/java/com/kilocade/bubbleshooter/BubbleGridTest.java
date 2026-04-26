@@ -178,7 +178,33 @@ final class BubbleGridTest {
     }
 
     @Test
-    void denseInteriorImpactFindsSurfaceCellInsteadOfDisappearing() {
+    void hintedSnapUsesActualPhysicsContactInsteadOfNearbyDenseMass() {
+        BubbleGrid grid = new BubbleGrid(6, 10.0, 100.0, 50.0);
+        StageGenerator.StageLayout layout = new StageGenerator.StageLayout(
+                1,
+                "Test",
+                "Hinted ricochet",
+                5,
+                List.of(BubbleColor.ROSE, BubbleColor.AZURE),
+                List.of(
+                        new ArrayList<>(java.util.Arrays.asList(BubbleAmmo.normal(BubbleColor.ROSE), BubbleAmmo.normal(BubbleColor.AZURE), BubbleAmmo.normal(BubbleColor.AZURE), null, null, null)),
+                        new ArrayList<>(java.util.Arrays.asList(null, BubbleAmmo.normal(BubbleColor.AZURE), BubbleAmmo.normal(BubbleColor.AZURE), null, null, null)),
+                        new ArrayList<>(java.util.Arrays.asList(null, null, BubbleAmmo.normal(BubbleColor.AZURE), null, null, null))
+                )
+        );
+        grid.loadLayout(layout);
+
+        Bubble projectile = Bubble.fired(BubbleColor.ROSE, 0.0, 0.0, 10.0, 220.0, Math.toRadians(42.0))
+                .withPosition(grid.cellCenterX(0, 0) - 2.0, grid.cellCenterY(0) + 12.0);
+
+        Bubble anchored = grid.snapBubble(projectile, new GridPosition(0, 0)).orElseThrow();
+
+        assertTrue(grid.neighbors(anchored).stream()
+                .anyMatch(neighbor -> new GridPosition(0, 0).equals(neighbor.gridPosition())));
+    }
+
+    @Test
+    void hintedDenseInteriorImpactDoesNotTeleportToSurfaceCell() {
         BubbleGrid grid = new BubbleGrid(7, 10.0, 100.0, 50.0);
         List<List<BubbleAmmo>> rows = new ArrayList<>();
         for (int row = 0; row < 7; row++) {
@@ -207,8 +233,33 @@ final class BubbleGridTest {
                         0.0)
                 .withPosition(grid.cellCenterX(3, 3), grid.cellCenterY(3));
 
-        Bubble anchored = grid.snapBubble(projectile, new GridPosition(3, 3)).orElseThrow();
+        assertTrue(grid.snapBubble(projectile, new GridPosition(3, 3)).isEmpty());
+    }
 
-        assertEquals(7, anchored.gridPosition().row());
+    @Test
+    void collisionBubblesExcludeDenseInteriorCells() {
+        BubbleGrid grid = new BubbleGrid(7, 10.0, 100.0, 50.0);
+        List<List<BubbleAmmo>> rows = new ArrayList<>();
+        for (int row = 0; row < 7; row++) {
+            ArrayList<BubbleAmmo> line = new ArrayList<>();
+            for (int col = 0; col < 7; col++) {
+                line.add(BubbleAmmo.normal(BubbleColor.ROSE));
+            }
+            rows.add(line);
+        }
+        StageGenerator.StageLayout layout = new StageGenerator.StageLayout(
+                1,
+                "Test",
+                "Dense block",
+                7,
+                List.of(BubbleColor.ROSE),
+                rows
+        );
+        grid.loadLayout(layout);
+
+        assertTrue(grid.collisionBubbles().stream()
+                .noneMatch(bubble -> new GridPosition(3, 3).equals(bubble.gridPosition())));
+        assertTrue(grid.collisionBubbles().stream()
+                .anyMatch(bubble -> new GridPosition(6, 3).equals(bubble.gridPosition())));
     }
 }

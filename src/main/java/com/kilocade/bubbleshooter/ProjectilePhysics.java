@@ -11,7 +11,7 @@ final class ProjectilePhysics {
     private static final double MIN_TRAVEL_RATIO = 1e-6;
     private static final double MIN_TIME_SLICE = 1e-6;
     private static final double WALL_NUDGE_DISTANCE = 0.08;
-    private static final double COLLISION_MARGIN = 0.5;
+    private static final double COLLISION_PADDING = 0.75;
 
     private ProjectilePhysics() {
     }
@@ -116,19 +116,31 @@ final class ProjectilePhysics {
             return bestCollision;
         }
 
-        double collisionRadius = (bubbleRadius * 2.0) - COLLISION_MARGIN;
+        double collisionRadius = (bubbleRadius * 2.0) + COLLISION_PADDING;
+        double bestOverlapEntryT = Double.POSITIVE_INFINITY;
         for (Bubble other : anchoredBubbles) {
             double relX = startX - other.x();
             double relY = startY - other.y();
+            double startDistanceSquared = (relX * relX) + (relY * relY);
             double b = 2.0 * ((relX * deltaX) + (relY * deltaY));
-            double c = (relX * relX) + (relY * relY) - (collisionRadius * collisionRadius);
+            double c = startDistanceSquared - (collisionRadius * collisionRadius);
             double discriminant = (b * b) - (4.0 * a * c);
             if (discriminant < 0) {
                 continue;
             }
 
             double sqrtDiscriminant = Math.sqrt(discriminant);
-            double t = (-b - sqrtDiscriminant) / (2.0 * a);
+            double entryT = (-b - sqrtDiscriminant) / (2.0 * a);
+            if (startDistanceSquared <= collisionRadius * collisionRadius) {
+                if (entryT < bestOverlapEntryT) {
+                    bestOverlapEntryT = entryT;
+                    bestT = 0.0;
+                    bestCollision = new Collision.Grid(startX, startY, other.gridPosition(), 0.0);
+                }
+                continue;
+            }
+
+            double t = entryT;
             if (t <= MIN_TRAVEL_RATIO || t > 1.0 || t >= bestT) {
                 continue;
             }

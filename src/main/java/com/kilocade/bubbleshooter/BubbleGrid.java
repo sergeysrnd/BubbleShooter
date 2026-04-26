@@ -62,6 +62,12 @@ public final class BubbleGrid {
                 .toList();
     }
 
+    public List<Bubble> collisionBubbles() {
+        return anchoredBubbles().stream()
+                .filter(bubble -> hasAttachmentSlot(bubble.gridPosition()))
+                .toList();
+    }
+
     public boolean isEmpty() {
         return anchoredBubbles().isEmpty();
     }
@@ -252,7 +258,11 @@ public final class BubbleGrid {
         }
 
         List<AttachmentCandidate> candidates = new ArrayList<>();
-        for (GridPosition candidate : candidateCellsAroundContacts(contacts)) {
+        List<GridPosition> candidateCells = anchorHint == null
+                ? candidateCellsAroundContacts(contacts)
+                : immediateCandidateCellsAroundContacts(contacts);
+
+        for (GridPosition candidate : candidateCells) {
             double candidateX = cellCenterX(candidate.row(), candidate.column());
             double candidateY = cellCenterY(candidate.row());
             double impactDistance = Math.hypot(candidateX - projectile.x(), candidateY - projectile.y());
@@ -289,6 +299,14 @@ public final class BubbleGrid {
     }
 
     private List<ImpactContact> impactContacts(Bubble projectile, GridPosition anchorHint) {
+        if (anchorHint != null) {
+            Bubble primaryAnchor = getBubble(anchorHint);
+            if (primaryAnchor == null) {
+                return List.of();
+            }
+            return List.of(contactFromBubble(projectile, primaryAnchor));
+        }
+
         double contactThreshold = (bubbleRadius * 2.0) + CONTACT_EPSILON;
         List<Bubble> nearbyContacts = new ArrayList<>();
         for (Bubble bubble : anchoredBubbles()) {
@@ -298,11 +316,7 @@ public final class BubbleGrid {
         }
 
         if (nearbyContacts.isEmpty()) {
-            Bubble primaryAnchor = getBubble(anchorHint);
-            if (primaryAnchor == null) {
-                return List.of();
-            }
-            nearbyContacts.add(primaryAnchor);
+            return List.of();
         }
 
         double nearestDistance = nearbyContacts.stream()
@@ -314,21 +328,24 @@ public final class BubbleGrid {
         List<ImpactContact> impactContacts = new ArrayList<>();
         for (Bubble bubble : nearbyContacts) {
             double distance = Math.hypot(projectile.x() - bubble.x(), projectile.y() - bubble.y());
-            double dx = projectile.x() - bubble.x();
-            double dy = projectile.y() - bubble.y();
-            double length = Math.hypot(dx, dy);
-            if (length <= 1e-6) {
-                impactContacts.add(new ImpactContact(bubble.gridPosition(), bubble.x(), bubble.y()));
-                continue;
-            }
             if (distance > nearestDistance + CONTACT_RING_EPSILON) {
                 continue;
             }
-            double idealX = bubble.x() + dx / length * horizontalSpacing;
-            double idealY = bubble.y() + dy / length * horizontalSpacing;
-            impactContacts.add(new ImpactContact(bubble.gridPosition(), idealX, idealY));
+            impactContacts.add(contactFromBubble(projectile, bubble));
         }
         return impactContacts;
+    }
+
+    private ImpactContact contactFromBubble(Bubble projectile, Bubble anchor) {
+        double dx = projectile.x() - anchor.x();
+        double dy = projectile.y() - anchor.y();
+        double length = Math.hypot(dx, dy);
+        if (length <= 1e-6) {
+            return new ImpactContact(anchor.gridPosition(), anchor.x(), anchor.y());
+        }
+        double idealX = anchor.x() + dx / length * horizontalSpacing;
+        double idealY = anchor.y() + dy / length * horizontalSpacing;
+        return new ImpactContact(anchor.gridPosition(), idealX, idealY);
     }
 
     private List<GridPosition> candidateCellsAroundContacts(List<ImpactContact> contacts) {
@@ -367,6 +384,22 @@ public final class BubbleGrid {
         }
 
         return List.of();
+    }
+
+    private List<GridPosition> immediateCandidateCellsAroundContacts(List<ImpactContact> contacts) {
+        LinkedHashSet<GridPosition> candidates = new LinkedHashSet<>();
+        for (ImpactContact contact : contacts) {
+            GridPosition position = contact.position();
+            if (position == null || !isOccupied(position.row(), position.column())) {
+                continue;
+            }
+            for (GridPosition neighbor : neighborPositions(position)) {
+                if (!isOccupied(neighbor.row(), neighbor.column()) && isSupportedCandidate(neighbor)) {
+                    candidates.add(neighbor);
+                }
+            }
+        }
+        return new ArrayList<>(candidates);
     }
 
     private Optional<GridPosition> findTopImpactCell(Bubble projectile) {
@@ -431,6 +464,18 @@ public final class BubbleGrid {
 
     private boolean isSupportedCandidate(GridPosition candidate) {
         return candidate.row() == 0 || occupiedNeighborCount(candidate) > 0;
+    }
+
+    private boolean hasAttachmentSlot(GridPosition position) {
+        if (position == null) {
+            return false;
+        }
+        for (GridPosition neighbor : neighborPositions(position)) {
+            if (!isOccupied(neighbor.row(), neighbor.column()) && isSupportedCandidate(neighbor)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isOccupied(int row, int col) {
