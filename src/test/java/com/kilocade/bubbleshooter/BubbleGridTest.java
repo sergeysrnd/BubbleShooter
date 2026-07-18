@@ -237,7 +237,7 @@ final class BubbleGridTest {
     }
 
     @Test
-    void collisionBubblesExcludeDenseInteriorCells() {
+    void denseInteriorStillRemainsPartOfTheBoard() {
         BubbleGrid grid = new BubbleGrid(7, 10.0, 100.0, 50.0);
         List<List<BubbleAmmo>> rows = new ArrayList<>();
         for (int row = 0; row < 7; row++) {
@@ -257,9 +257,41 @@ final class BubbleGridTest {
         );
         grid.loadLayout(layout);
 
-        assertTrue(grid.collisionBubbles().stream()
-                .noneMatch(bubble -> new GridPosition(3, 3).equals(bubble.gridPosition())));
-        assertTrue(grid.collisionBubbles().stream()
-                .anyMatch(bubble -> new GridPosition(6, 3).equals(bubble.gridPosition())));
+        assertTrue(grid.anchoredBubbles().stream()
+                .anyMatch(bubble -> new GridPosition(3, 3).equals(bubble.gridPosition())));
+        assertEquals(49, grid.anchoredBubbles().size());
+    }
+
+    @Test
+    void removingTheCeilingConnectionMarksTheRemainingComponentAsFloating() {
+        BubbleGrid grid = new BubbleGrid(4, 10.0, 100.0, 50.0);
+        grid.loadLayout(new StageGenerator.StageLayout(
+                1, "Test", "Floating", 4, List.of(BubbleColor.ROSE, BubbleColor.AZURE),
+                List.of(
+                        new ArrayList<>(java.util.Arrays.asList(BubbleAmmo.normal(BubbleColor.ROSE), null, null, null)),
+                        new ArrayList<>(java.util.Arrays.asList(BubbleAmmo.normal(BubbleColor.AZURE), null, null, null))
+                )
+        ));
+
+        Bubble ceiling = grid.anchoredBubbles().stream()
+                .filter(bubble -> bubble.gridPosition().equals(new GridPosition(0, 0)))
+                .findFirst().orElseThrow();
+        grid.removeBubbles(Set.of(ceiling));
+
+        assertEquals(1, grid.collectFloatingBubbles().size());
+    }
+
+    @Test
+    void pressureRowShiftsExistingBubblesAndAcceptsAnEmptyPalette() {
+        BubbleGrid grid = new BubbleGrid(5, 10.0, 100.0, 50.0);
+        Bubble original = grid.snapBubble(Bubble.fired(BubbleColor.ROSE, 100.0, 50.0, 10.0, 0.0, 0.0), null)
+                .orElseThrow();
+
+        grid.pushPressureRow(List.of(), 1);
+
+        assertTrue(grid.anchoredBubbles().stream()
+                .anyMatch(bubble -> bubble.color() == original.color()
+                        && bubble.gridPosition().equals(new GridPosition(1, 0))));
+        assertFalse(grid.rows().get(0).stream().allMatch(java.util.Objects::isNull));
     }
 }

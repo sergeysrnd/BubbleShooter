@@ -47,6 +47,7 @@ public final class GameController {
     private static final double CANNON_BOTTOM_MARGIN = 78.0;
     private static final double DANGER_MARGIN = 108.0;
     private static final double GUIDE_SLICE_SECONDS = 0.012;
+    private static final double KEYBOARD_AIM_STEP = 3.5;
     private static final double HUD_TEXT_WIDTH = 340.0;
     private static final double HUD_OBJECTIVE_HEIGHT = 18.0;
     private static final double HUD_STATUS_HEIGHT = 34.0;
@@ -59,6 +60,7 @@ public final class GameController {
 
     private enum Phase {
         PLAYING,
+        TRANSITION,
         LOST
     }
 
@@ -373,7 +375,7 @@ public final class GameController {
 
     private void hookInput() {
         playfield.setOnMouseMoved(event -> {
-            if (cannon == null || phase == Phase.LOST) {
+            if (cannon == null || phase != Phase.PLAYING) {
                 return;
             }
             Point2D local = new Point2D(event.getX(), event.getY());
@@ -391,6 +393,8 @@ public final class GameController {
         scene.setOnKeyPressed(event -> {
             switch (event.getCode()) {
                 case SPACE, ENTER -> triggerShot();
+                case LEFT, A -> adjustAim(KEYBOARD_AIM_STEP);
+                case RIGHT, D -> adjustAim(-KEYBOARD_AIM_STEP);
                 case R -> restartCampaign();
                 default -> {
                 }
@@ -459,7 +463,7 @@ public final class GameController {
                     slice,
                     playfieldWidth(),
                     BUBBLE_RADIUS,
-                    grid.collisionBubbles()
+                    grid.anchoredBubbles()
             );
 
             if (result.bounced()) {
@@ -481,29 +485,38 @@ public final class GameController {
             restartCampaign();
             return;
         }
-        if (projectile != null || currentAmmo == null || cannon == null) {
+        if (phase != Phase.PLAYING || projectile != null || currentAmmo == null || cannon == null) {
             return;
         }
 
         projectile = cannon.fire(currentAmmo, BUBBLE_RADIUS, PROJECTILE_SPEED);
         projectileNode = projectile.asCircle();
         bubbleLayer.getChildren().add(projectileNode);
-
-        currentAmmo = nextAmmo;
-        nextAmmo = rollAmmo();
-
-        updateHud();
         updateCannonVisual();
         updateTrajectoryPreview();
         playSound(engine -> engine.playShoot());
     }
 
+    private void adjustAim(double degrees) {
+        if (phase != Phase.PLAYING || cannon == null || projectile != null) {
+            return;
+        }
+        cannon.adjustAim(degrees);
+        updateCannonVisual();
+        updateTrajectoryPreview();
+    }
+
     private void anchorProjectile(Bubble impactBubble, Bubble.GridPosition anchorHint) {
         Optional<Bubble> anchored = grid.snapBubble(impactBubble, anchorHint);
         if (anchored.isEmpty()) {
-            projectile = impactBubble;
-            updateProjectileNode();
-            statusLabel.setText("Shot grazed the cluster. Keep aiming.");
+            bubbleLayer.getChildren().remove(projectileNode);
+            projectileNode = null;
+            projectile = null;
+            // The queue is consumed only after a legal placement. Therefore a
+            // malformed board returns precisely the loaded bubble and keeps
+            // the previewed next bubble intact.
+            statusLabel.setText("No legal attachment slot — bubble returned.");
+            updateHud();
             updateTrajectoryPreview();
             return;
         }
@@ -511,6 +524,9 @@ public final class GameController {
         bubbleLayer.getChildren().remove(projectileNode);
         projectileNode = null;
         projectile = null;
+
+        currentAmmo = nextAmmo;
+        nextAmmo = rollAmmo();
 
         resolveShot(anchored.orElseThrow());
     }
@@ -554,6 +570,10 @@ public final class GameController {
 
         if (grid.isEmpty()) {
             score += stageNumber * 280;
+            // Ignore input until the next layout replaces this cleared board.
+            // Otherwise a click during the transition fires a projectile that is
+            // immediately discarded by loadStage().
+            phase = Phase.TRANSITION;
             showBanner("Stage Clear", Color.web("#b8f1ff"));
             playSound(engine -> engine.playStageClear());
             PauseTransition pause = new PauseTransition(Duration.millis(650));
@@ -623,7 +643,7 @@ public final class GameController {
                     GUIDE_SLICE_SECONDS,
                     playfieldWidth(),
                     BUBBLE_RADIUS,
-                    grid == null ? List.of() : grid.collisionBubbles()
+                    grid == null ? List.of() : grid.anchoredBubbles()
             );
             probe = result.projectile();
 
@@ -677,7 +697,8 @@ public final class GameController {
         updateTrajectoryPreview();
         lastTickNanos = 0L;
 
-        statusLabel.setText("Clear the formation before " + MISSES_PER_DROP + " misses push a new row.");
+        statusLabel.setText("Aim with mouse or ←/A and →/D. Shoot with click or Space. "
+                + MISSES_PER_DROP + " misses add a row.");
         if (!resetScore) {
             showBanner("Stage " + stageNumber, Color.web("#c2f6ff"));
         }

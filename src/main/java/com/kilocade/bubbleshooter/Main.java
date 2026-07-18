@@ -10,7 +10,7 @@ import javafx.stage.Stage;
  */
 public final class Main extends Application {
 
-    private static final String TITLE = "Comet Bloom";
+    private static final String TITLE = "Bubble Shooter — Comet Bloom";
     private static final double MIN_STAGE_WIDTH = 760;
     private static final double MIN_STAGE_HEIGHT = 760;
 

@@ -85,4 +85,68 @@ final class ProjectilePhysicsTest {
         assertTrue(result.anchored());
         assertEquals(new GridPosition(1, 0), result.anchorHint());
     }
+
+    @Test
+    void gridContactWinsWhenItOccursAtTheSameInstantAsWallContact() {
+        Bubble projectile = new Bubble(BubbleColor.GOLD, BubbleKind.NORMAL, 50.0, 80.0, 10.0, -100.0, 0.0, null);
+        Bubble anchor = Bubble.anchored(BubbleColor.GOLD, 30.0, 80.0, 10.0, new GridPosition(1, 0));
+
+        ProjectilePhysics.AdvanceResult result = ProjectilePhysics.advance(
+                projectile,
+                0.5,
+                200.0,
+                10.0,
+                List.of(anchor)
+        );
+
+        assertTrue(result.anchored());
+        assertFalse(result.bounced());
+        assertEquals(new GridPosition(1, 0), result.anchorHint());
+    }
+
+    @Test
+    void denseCloudCannotBeSkippedDuringAHighSpeedStep() {
+        Bubble projectile = new Bubble(BubbleColor.AZURE, BubbleKind.NORMAL, 10.0, 60.0, 10.0, 300.0, 0.0, null);
+        Bubble front = Bubble.anchored(BubbleColor.AZURE, 70.0, 60.0, 10.0, new GridPosition(3, 0));
+        Bubble behind = Bubble.anchored(BubbleColor.ROSE, 90.0, 60.0, 10.0, new GridPosition(3, 1));
+
+        ProjectilePhysics.AdvanceResult result = ProjectilePhysics.advance(
+                projectile,
+                0.5,
+                300.0,
+                10.0,
+                List.of(front, behind)
+        );
+
+        assertTrue(result.anchored());
+        assertEquals(new GridPosition(3, 0), result.anchorHint());
+        assertEquals(50.0, result.projectile().x(), 0.001);
+    }
+
+    @Test
+    void seamCollisionUsesStableGridOrderRatherThanAnchoredListOrder() {
+        Bubble projectile = new Bubble(BubbleColor.AZURE, BubbleKind.NORMAL, 50.0, 100.0, 10.0, 0.0, -100.0, null);
+        Bubble left = Bubble.anchored(BubbleColor.ROSE, 40.0, 70.0, 10.0, new GridPosition(2, 4));
+        Bubble right = Bubble.anchored(BubbleColor.ROSE, 60.0, 70.0, 10.0, new GridPosition(2, 5));
+
+        ProjectilePhysics.AdvanceResult forward = ProjectilePhysics.advance(projectile, 0.5, 200.0, 10.0, List.of(left, right));
+        ProjectilePhysics.AdvanceResult reverse = ProjectilePhysics.advance(projectile, 0.5, 200.0, 10.0, List.of(right, left));
+
+        assertEquals(new GridPosition(2, 4), forward.anchorHint());
+        assertEquals(forward.anchorHint(), reverse.anchorHint());
+        assertEquals(ProjectilePhysics.ImpactKind.BUBBLE, forward.impactKind());
+        assertEquals(forward.impactY(), reverse.impactY(), 0.000001);
+    }
+
+    @Test
+    void anAdvanceCanResolveMoreThanSixWallBounces() {
+        Bubble projectile = new Bubble(BubbleColor.GOLD, BubbleKind.NORMAL, 50.0, 100.0, 10.0, 1_000.0, 0.0, null);
+
+        ProjectilePhysics.AdvanceResult result = ProjectilePhysics.advance(projectile, 1.0, 100.0, 10.0, List.of());
+
+        assertFalse(result.anchored());
+        assertTrue(result.bounced());
+        assertEquals(90.0, result.projectile().x(), 0.000001);
+        assertEquals(-1_000.0, result.projectile().vx(), 0.000001);
+    }
 }

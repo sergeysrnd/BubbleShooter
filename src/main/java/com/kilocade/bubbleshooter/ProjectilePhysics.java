@@ -10,8 +10,8 @@ final class ProjectilePhysics {
 
     private static final double MIN_TRAVEL_RATIO = 1e-6;
     private static final double MIN_TIME_SLICE = 1e-6;
-    private static final double WALL_NUDGE_DISTANCE = 0.08;
-    private static final double COLLISION_PADDING = 0.75;
+    private static final double COLLISION_TIME_EPSILON = 1e-8;
+    private static final int MAX_COLLISIONS_PER_ADVANCE = 4_096;
 
     private ProjectilePhysics() {
     }
@@ -28,7 +28,7 @@ final class ProjectilePhysics {
         double remaining = deltaSeconds;
         int guard = 0;
 
-        while (remaining > MIN_TIME_SLICE && guard++ < 6) {
+        while (remaining > MIN_TIME_SLICE && guard++ < MAX_COLLISIONS_PER_ADVANCE) {
             Collision collision = detectCollision(current, remaining, playfieldWidth, bubbleRadius, anchoredBubbles);
             switch (collision) {
                 case Collision.Wall wall -> {
@@ -40,16 +40,6 @@ final class ProjectilePhysics {
 
                     if (timeLeft <= MIN_TIME_SLICE) {
                         return AdvanceResult.inFlight(current, bounced);
-                    }
-
-                    double speed = Math.hypot(current.vx(), current.vy());
-                    if (speed > MIN_TIME_SLICE) {
-                        double nudgeSeconds = Math.min(timeLeft, WALL_NUDGE_DISTANCE / speed);
-                        current = current.withPosition(
-                                current.x() + current.vx() * nudgeSeconds,
-                                current.y() + current.vy() * nudgeSeconds
-                        );
-                        timeLeft -= nudgeSeconds;
                     }
                     remaining = timeLeft;
                 }
@@ -66,6 +56,8 @@ final class ProjectilePhysics {
                 }
             }
         }
+        // This only protects callers from pathological input (for example an
+        // effectively infinite time slice). A normal frame never reaches it.
         return AdvanceResult.inFlight(current, bounced);
     }
 
@@ -104,7 +96,10 @@ final class ProjectilePhysics {
 
         if (Math.abs(deltaY) > MIN_TRAVEL_RATIO && deltaY < 0) {
             double t = (bubbleRadius - startY) / deltaY;
-            if (t > MIN_TRAVEL_RATIO && t <= 1.0 && t < bestT) {
+            // A ceiling or bubble contact wins an exact tie with a side wall.
+            // The projectile must stick to the board rather than reflect first
+            // and resolve a second, unrelated collision.
+            if (t > MIN_TRAVEL_RATIO && t <= 1.0 && t <= bestT + COLLISION_TIME_EPSILON) {
                 double impactX = startX + deltaX * t;
                 bestT = t;
                 bestCollision = new Collision.Grid(impactX, bubbleRadius, null, t);
@@ -116,7 +111,7 @@ final class ProjectilePhysics {
             return bestCollision;
         }
 
-        double collisionRadius = (bubbleRadius * 2.0) + COLLISION_PADDING;
+        double collisionRadius = bubbleRadius * 2.0;
         double bestOverlapEntryT = Double.POSITIVE_INFINITY;
         for (Bubble other : anchoredBubbles) {
             double relX = startX - other.x();
@@ -132,7 +127,9 @@ final class ProjectilePhysics {
             double sqrtDiscriminant = Math.sqrt(discriminant);
             double entryT = (-b - sqrtDiscriminant) / (2.0 * a);
             if (startDistanceSquared <= collisionRadius * collisionRadius) {
-                if (entryT < bestOverlapEntryT) {
+                if (entryT < bestOverlapEntryT - COLLISION_TIME_EPSILON
+                        || (Math.abs(entryT - bestOverlapEntryT) <= COLLISION_TIME_EPSILON
+                        && isEarlierGridHit(0.0, other.gridPosition(), bestT, bestCollision))) {
                     bestOverlapEntryT = entryT;
                     bestT = 0.0;
                     bestCollision = new Collision.Grid(startX, startY, other.gridPosition(), 0.0);
@@ -141,7 +138,7 @@ final class ProjectilePhysics {
             }
 
             double t = entryT;
-            if (t <= MIN_TRAVEL_RATIO || t > 1.0 || t >= bestT) {
+            if (t <= MIN_TRAVEL_RATIO || t > 1.0 || !isEarlierGridHit(t, other.gridPosition(), bestT, bestCollision)) {
                 continue;
             }
 
@@ -154,14 +151,58 @@ final class ProjectilePhysics {
         return bestCollision;
     }
 
-    record AdvanceResult(Bubble projectile, GridPosition anchorHint, boolean anchored, boolean bounced) {
+    /**
+     * Keep seam contacts independent of the iteration order of anchored
+     * bubbles. A bubble contact also wins a simultaneous ceiling contact so
+     * the grid can choose an immediate neighbour of the actual hit bubble.
+     */
+    private static boolean isEarlierGridHit(
+            double candidateTime,
+            GridPosition candidateCell,
+            double bestTime,
+            Collision bestCollision
+    ) {
+        if (candidateTime < bestTime - COLLISION_TIME_EPSILON) {
+            return true;
+        }
+        if (candidateTime > bestTime + COLLISION_TIME_EPSILON) {
+            return false;
+        }
+        if (!(bestCollision instanceof Collision.Grid grid)) {
+            return true;
+        }
+        GridPosition currentCell = grid.anchorHint();
+        if (currentCell == null) {
+            return true;
+        }
+        int byRow = Integer.compare(candidateCell.row(), currentCell.row());
+        return byRow < 0 || (byRow == 0 && candidateCell.column() < currentCell.column());
+    }
+
+    enum ImpactKind {
+        NONE,
+        WALL,
+        CEILING,
+        BUBBLE
+    }
+
+    record AdvanceResult(Bubble projectile, GridPosition anchorHint, boolean anchored, boolean bounced, ImpactKind impactKind) {
 
         static AdvanceResult inFlight(Bubble projectile, boolean bounced) {
-            return new AdvanceResult(projectile, null, false, bounced);
+            return new AdvanceResult(projectile, null, false, bounced, bounced ? ImpactKind.WALL : ImpactKind.NONE);
         }
 
         static AdvanceResult anchored(Bubble projectile, GridPosition anchorHint, boolean bounced) {
-            return new AdvanceResult(projectile, anchorHint, true, bounced);
+            ImpactKind kind = anchorHint == null ? ImpactKind.CEILING : ImpactKind.BUBBLE;
+            return new AdvanceResult(projectile, anchorHint, true, bounced, kind);
+        }
+
+        double impactX() {
+            return projectile.x();
+        }
+
+        double impactY() {
+            return projectile.y();
         }
     }
 
