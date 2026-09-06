@@ -20,13 +20,16 @@ public enum BubbleKind {
             case NORMAL -> new RadialGradient(
                     0,
                     0,
-                    0.35,
-                    0.3,
-                    0.8,
+                    0.32,
+                    0.25,
+                    0.78,
                     true,
                     CycleMethod.NO_CYCLE,
-                    new Stop(0, color.toFxColor().brighter()),
-                    new Stop(1, color.toFxColor().darker())
+                    new Stop(0, color.toFxColor().interpolate(Color.WHITE, .88)),
+                    new Stop(.13, color.toFxColor().interpolate(Color.WHITE, .5)),
+                    new Stop(.34, color.toFxColor()),
+                    new Stop(.76, color.toFxColor().deriveColor(0, 1.1, .65, 1)),
+                    new Stop(1, color.toFxColor().deriveColor(0, 1.1, .28, 1))
             );
             case PRISM -> new LinearGradient(
                     0,
@@ -57,7 +60,7 @@ public enum BubbleKind {
 
     public Color stroke(BubbleColor color) {
         return switch (this) {
-            case NORMAL -> color.toFxColor().deriveColor(0, 1.1, 0.55, 1.0);
+            case NORMAL -> color.toFxColor().interpolate(Color.WHITE, .28);
             case PRISM -> Color.web("#ffffff");
             case PULSE -> Color.web("#ffe8cf");
         };

@@ -94,13 +94,7 @@ public final class BubbleGrid {
     }
 
     public Optional<Bubble> snapBubble(Bubble projectile, GridPosition anchorHint) {
-        if (projectile == null) {
-            return Optional.empty();
-        }
-
-        Optional<GridPosition> cell = anchorHint == null
-                ? findTopImpactCell(projectile)
-                : findAttachmentCell(projectile, anchorHint);
+        Optional<GridPosition> cell = attachmentCell(projectile, anchorHint);
         if (cell.isEmpty()) {
             return Optional.empty();
         }
@@ -110,6 +104,22 @@ public final class BubbleGrid {
         Bubble anchored = projectile.snapTo(position, cellCenterX(position.row(), position.column()), cellCenterY(position.row()));
         rows.get(position.row()).set(position.column(), anchored);
         return Optional.of(anchored);
+    }
+
+    /** Read-only placement query used by the trajectory preview and actual shot. */
+    public Optional<GridPosition> attachmentCell(Bubble projectile, GridPosition anchorHint) {
+        if (projectile == null) {
+            return Optional.empty();
+        }
+
+        return anchorHint == null
+                ? findTopImpactCell(projectile)
+                : findAttachmentCell(projectile, anchorHint);
+    }
+
+    ProjectilePhysics.Bounds projectileBounds() {
+        return new ProjectilePhysics.Bounds(leftPadding,
+                leftPadding + (columns - 1) * horizontalSpacing + bubbleRadius, topPadding);
     }
 
     public Set<Bubble> collectColorCluster(Bubble origin, BubbleColor targetColor) {

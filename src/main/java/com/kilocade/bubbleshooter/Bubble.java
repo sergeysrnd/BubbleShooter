@@ -63,8 +63,8 @@ public record Bubble(
         Circle shell = new Circle(x, y, radius);
         shell.setFill(kind.fill(color));
         shell.setStroke(kind.stroke(color));
-        shell.setStrokeWidth(kind == BubbleKind.NORMAL ? 2.0 : 3.0);
-        shell.setEffect(new DropShadow(radius * 0.45, kind.glow(color)));
+        shell.setStrokeWidth(kind == BubbleKind.NORMAL ? 1.0 : 3.0);
+        shell.setEffect(new DropShadow(radius * 0.22, kind.glow(color)));
         return shell;
     }
 

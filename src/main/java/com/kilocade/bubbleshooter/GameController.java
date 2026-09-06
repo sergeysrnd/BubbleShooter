@@ -8,6 +8,8 @@ import java.util.Set;
 import javafx.animation.AnimationTimer;
 import javafx.animation.FadeTransition;
 import javafx.animation.PauseTransition;
+import javafx.beans.binding.Bindings;
+import javafx.beans.binding.BooleanBinding;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
@@ -15,6 +17,7 @@ import javafx.scene.Group;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
@@ -29,6 +32,8 @@ import javafx.scene.paint.Stop;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.shape.Ellipse;
+import javafx.scene.text.Text;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.util.Duration;
@@ -42,7 +47,6 @@ public final class GameController {
     private static final double INITIAL_SCENE_HEIGHT = 860;
     private static final double BUBBLE_RADIUS = 18.0;
     private static final double PROJECTILE_SPEED = 720.0;
-    private static final double MAX_PROJECTILE_STEP = BUBBLE_RADIUS * 0.6;
     private static final double GRID_TOP_PADDING = 74.0;
     private static final double CANNON_BOTTOM_MARGIN = 78.0;
     private static final double DANGER_MARGIN = 108.0;
@@ -60,6 +64,7 @@ public final class GameController {
 
     private enum Phase {
         PLAYING,
+        PAUSED,
         TRANSITION,
         LOST
     }
@@ -68,6 +73,7 @@ public final class GameController {
     }
 
     private final BorderPane root = new BorderPane();
+    private final BooleanBinding compactHud = root.widthProperty().lessThan(980);
     private final StackPane centerPane = new StackPane();
     private final Pane playfield = new Pane();
     private final Group backdropLayer = new Group();
@@ -86,6 +92,10 @@ public final class GameController {
     private final Label titleLabel = new Label("Comet Bloom");
     private final Label stageLabel = new Label();
     private final Label scoreLabel = new Label();
+    private final Label recordLabel = new Label();
+    private final Tooltip recordTooltip = new Tooltip();
+    private final Text sectorText = new Text();
+    private final Text remainingText = new Text();
     private final Label comboLabel = new Label();
     private final Label pressureLabel = new Label();
     private final Label objectiveLabel = new Label();
@@ -98,11 +108,17 @@ public final class GameController {
 
     private final Button restartButton = new Button("Restart");
     private final Button soundButton = new Button("Sound: On");
+    private final Button pauseButton = new Button("Pause");
+    private final PauseTransition stageTransition = new PauseTransition(Duration.millis(1100));
+    private FadeTransition bannerFade;
 
     private final StageGenerator stageGenerator = new StageGenerator();
     private final SoundEngine soundEngine = new SoundEngine();
     private final List<Star> stars = new ArrayList<>();
     private final Random random = new Random();
+    private final GameEffects effects = new GameEffects();
+    private final HighScoreStore records;
+    private boolean shotRicochet;
 
     private Scene scene;
     private BubbleGrid grid;
@@ -127,6 +143,11 @@ public final class GameController {
     private double lastPlayfieldHeight = INITIAL_SCENE_HEIGHT - 180;
 
     public GameController() {
+        this(HighScoreStore.local());
+    }
+
+    GameController(HighScoreStore records) {
+        this.records = records;
         seedBackdrop();
     }
 
@@ -137,7 +158,11 @@ public final class GameController {
         playfield.setMinSize(720, 560);
         playfield.prefWidthProperty().bind(centerPane.widthProperty());
         playfield.prefHeightProperty().bind(centerPane.heightProperty());
-        playfield.getChildren().addAll(backdropLayer, bubbleLayer, guideLayer, cannonLayer, overlayLayer);
+        playfield.getChildren().addAll(backdropLayer, bubbleLayer, guideLayer, cannonLayer, effects.layer(), overlayLayer);
+        Rectangle effectsClip = new Rectangle();
+        effectsClip.widthProperty().bind(playfield.widthProperty());
+        effectsClip.heightProperty().bind(playfield.heightProperty());
+        effects.layer().setClip(effectsClip);
 
         centerPane.setPadding(new Insets(0, 14, 14, 14));
         centerPane.getChildren().add(playfield);
@@ -172,6 +197,10 @@ public final class GameController {
     }
 
     public void stop() {
+        records.record(score);
+        effects.clear();
+        stageTransition.stop();
+        if (bannerFade != null) bannerFade.stop();
         if (loop != null) {
             loop.stop();
         }
@@ -189,10 +218,10 @@ public final class GameController {
 
         double angle = cannon == null ? 90.0 : cannon.angleDegrees();
         double oldWidth = lastPlayfieldWidth <= 0 ? width : lastPlayfieldWidth;
-        double oldHeight = lastPlayfieldHeight <= 0 ? height : lastPlayfieldHeight;
-
+        effects.shift(gridLeftPadding(width) - gridLeftPadding(oldWidth));
         if (projectile != null) {
-            projectile = projectile.withPosition(projectile.x() * width / oldWidth, projectile.y() * height / oldHeight);
+            // Translate with the board: resizing must not bend a shot or push it into a cluster.
+            projectile = projectile.withPosition(projectile.x() + gridLeftPadding(width) - gridLeftPadding(oldWidth), projectile.y());
         }
 
         cannon = new Cannon(width / 2.0, height - CANNON_BOTTOM_MARGIN);
@@ -212,7 +241,9 @@ public final class GameController {
 
     private VBox buildHud() {
         titleLabel.setTextFill(Color.web("#eff7ff"));
-        titleLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 28));
+        titleLabel.fontProperty().bind(Bindings.createObjectBinding(
+                () -> Font.font("Verdana", FontWeight.BOLD, compactHud.get() ? 22 : 28), compactHud));
+        var textWidth = Bindings.when(compactHud).then(200.0).otherwise(HUD_TEXT_WIDTH);
 
         stageLabel.setTextFill(Color.web("#9ad9ff"));
         stageLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 16));
@@ -221,8 +252,8 @@ public final class GameController {
         objectiveLabel.setWrapText(true);
         objectiveLabel.setFont(Font.font("Verdana", 13));
         objectiveLabel.setMinWidth(0);
-        objectiveLabel.setPrefWidth(HUD_TEXT_WIDTH);
-        objectiveLabel.setMaxWidth(HUD_TEXT_WIDTH);
+        objectiveLabel.prefWidthProperty().bind(textWidth);
+        objectiveLabel.maxWidthProperty().bind(textWidth);
         objectiveLabel.setMinHeight(HUD_OBJECTIVE_HEIGHT);
         objectiveLabel.setPrefHeight(HUD_OBJECTIVE_HEIGHT);
         objectiveLabel.setMaxHeight(HUD_OBJECTIVE_HEIGHT);
@@ -231,24 +262,29 @@ public final class GameController {
         statusLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 13));
         statusLabel.setWrapText(true);
         statusLabel.setMinWidth(0);
-        statusLabel.setPrefWidth(HUD_TEXT_WIDTH);
-        statusLabel.setMaxWidth(HUD_TEXT_WIDTH);
+        statusLabel.prefWidthProperty().bind(textWidth);
+        statusLabel.maxWidthProperty().bind(textWidth);
         statusLabel.setMinHeight(HUD_STATUS_HEIGHT);
         statusLabel.setPrefHeight(HUD_STATUS_HEIGHT);
         statusLabel.setMaxHeight(HUD_STATUS_HEIGHT);
 
         VBox textColumn = new VBox(4, titleLabel, stageLabel, objectiveLabel, statusLabel);
         textColumn.setAlignment(Pos.CENTER_LEFT);
-        textColumn.setMinWidth(0);
-        textColumn.setPrefWidth(HUD_TEXT_WIDTH);
-        textColumn.setMaxWidth(HUD_TEXT_WIDTH);
+        textColumn.minWidthProperty().bind(textWidth);
+        textColumn.prefWidthProperty().bind(textWidth);
+        textColumn.maxWidthProperty().bind(textWidth);
 
         VBox scoreChip = statChip("Score", scoreLabel, "#ffd166");
+        recordLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 9));
+        recordLabel.setTextFill(Color.web("#b9a1f4"));
+        recordLabel.setTooltip(recordTooltip);
+        scoreChip.getChildren().add(recordLabel);
         VBox comboChip = statChip("Combo", comboLabel, "#ff84c1");
         VBox pressureChip = statChip("Pressure", pressureLabel, "#ffb88c");
         HBox stats = new HBox(8, scoreChip, comboChip, pressureChip);
         stats.setAlignment(Pos.CENTER_LEFT);
-        stats.setMinWidth(0);
+        stats.setFillHeight(false);
+        stats.setMinWidth(Region.USE_PREF_SIZE);
 
         HBox ammoQueue = new HBox(8, ammoCard("Loaded", currentPreview, currentLabel), ammoCard("Queued", nextPreview, nextLabel));
         ammoQueue.setAlignment(Pos.CENTER);
@@ -258,25 +294,30 @@ public final class GameController {
         restartButton.setFocusTraversable(false);
         soundButton.setOnAction(event -> toggleSound());
         soundButton.setFocusTraversable(false);
+        pauseButton.setOnAction(event -> togglePause());
+        pauseButton.setFocusTraversable(false);
 
-        styleHudButton(restartButton, "#207747", "#e6fff4");
-        styleHudButton(soundButton, "#274d86", "#eaf4ff");
+        styleHudButton(restartButton, "#594ca3", "#faf5ff");
+        styleHudButton(soundButton, "#233550", "#dfeaff");
+        styleHudButton(pauseButton, "#233550", "#dfeaff");
 
-        VBox buttonColumn = new VBox(8, restartButton, soundButton);
+        VBox buttonColumn = new VBox(6, restartButton, soundButton, pauseButton);
         buttonColumn.setAlignment(Pos.CENTER_LEFT);
 
         HBox rightCluster = new HBox(12, ammoQueue, buttonColumn);
         rightCluster.setAlignment(Pos.CENTER_RIGHT);
-        rightCluster.setMinWidth(0);
+        rightCluster.setMinWidth(Region.USE_PREF_SIZE);
 
         HBox hud = new HBox(20, textColumn, stats, rightCluster);
         hud.setAlignment(Pos.CENTER_LEFT);
         hud.setMinWidth(0);
         hud.setPadding(new Insets(14, 18, 14, 18));
-        hud.setStyle("-fx-background-color: linear-gradient(to bottom, #0a1d2c, #07131f);" +
-                "-fx-border-color: rgba(142,207,255,0.24); -fx-border-width: 0 0 1 0;");
+        hud.setStyle("-fx-background-color: linear-gradient(to bottom right, #181a36, #0b1626);" +
+                "-fx-border-color: rgba(181,164,255,0.22); -fx-border-width: 0 0 1 0;");
 
-        VBox wrapper = new VBox(hud);
+        Label controls = new Label("Mouse / A D: aim   •   Click / Space: shoot   •   X / right click: swap   •   P / Esc: pause   •   R: restart");
+        controls.setStyle("-fx-text-fill: #9fb7cd; -fx-font-size: 11px; -fx-padding: 5 18 8 18;");
+        VBox wrapper = new VBox(hud, controls);
         return wrapper;
     }
 
@@ -286,20 +327,22 @@ public final class GameController {
         title.setFont(Font.font("Verdana", FontWeight.BOLD, 10));
 
         valueLabel.setTextFill(Color.web(accentColor));
-        valueLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 20));
+        valueLabel.fontProperty().bind(Bindings.createObjectBinding(
+                () -> Font.font("Verdana", FontWeight.BOLD, compactHud.get() ? 16 : 20), compactHud));
         valueLabel.setMinWidth(0);
-        valueLabel.setPrefWidth(HUD_STAT_WIDTH - 20);
-        valueLabel.setMaxWidth(HUD_STAT_WIDTH - 20);
+        var chipWidth = Bindings.when(compactHud).then(64.0).otherwise(HUD_STAT_WIDTH);
+        valueLabel.prefWidthProperty().bind(chipWidth.subtract(12));
+        valueLabel.maxWidthProperty().bind(chipWidth.subtract(12));
         valueLabel.setAlignment(Pos.CENTER_LEFT);
 
         VBox chip = new VBox(2, title, valueLabel);
         chip.setAlignment(Pos.CENTER_LEFT);
-        chip.setPadding(new Insets(8, 10, 8, 10));
-        chip.setMinWidth(HUD_STAT_WIDTH);
-        chip.setPrefWidth(HUD_STAT_WIDTH);
-        chip.setMaxWidth(HUD_STAT_WIDTH);
+        chip.setPadding(new Insets(8, 6, 8, 6));
+        chip.minWidthProperty().bind(chipWidth);
+        chip.prefWidthProperty().bind(chipWidth);
+        chip.maxWidthProperty().bind(chipWidth);
         chip.setStyle("-fx-background-color: rgba(255,255,255,0.055);" +
-                "-fx-background-radius: 8; -fx-border-radius: 8;" +
+                "-fx-background-radius: 14; -fx-border-radius: 14;" +
                 "-fx-border-color: rgba(180,222,255,0.16);");
         return chip;
     }
@@ -307,33 +350,35 @@ public final class GameController {
     private VBox ammoCard(String titleText, Circle preview, Label valueLabel) {
         Label title = new Label(titleText);
         title.setTextFill(Color.web("#bcd2e8"));
-        title.setFont(Font.font("Verdana", FontWeight.BOLD, 11));
+        title.setFont(Font.font("Verdana", FontWeight.BOLD, 10));
 
         valueLabel.setTextFill(Color.web("#f4f9ff"));
         valueLabel.setFont(Font.font("Verdana", FontWeight.BOLD, 11));
         valueLabel.setMinWidth(0);
-        valueLabel.setPrefWidth(HUD_AMMO_WIDTH - 18);
-        valueLabel.setMaxWidth(HUD_AMMO_WIDTH - 18);
+        var cardWidth = Bindings.when(compactHud).then(64.0).otherwise(HUD_AMMO_WIDTH);
+        valueLabel.prefWidthProperty().bind(cardWidth.subtract(18));
+        valueLabel.maxWidthProperty().bind(cardWidth.subtract(18));
         valueLabel.setAlignment(Pos.CENTER);
 
         VBox box = new VBox(6, title, preview, valueLabel);
         box.setAlignment(Pos.CENTER);
-        box.setPadding(new Insets(8, 10, 8, 10));
-        box.setMinWidth(HUD_AMMO_WIDTH);
-        box.setPrefWidth(HUD_AMMO_WIDTH);
-        box.setMaxWidth(HUD_AMMO_WIDTH);
+        box.setPadding(new Insets(8, 6, 8, 6));
+        box.minWidthProperty().bind(cardWidth);
+        box.prefWidthProperty().bind(cardWidth);
+        box.maxWidthProperty().bind(cardWidth);
         box.setStyle("-fx-background-color: rgba(255,255,255,0.055);" +
-                "-fx-background-radius: 8; -fx-border-radius: 8;" +
+                "-fx-background-radius: 14; -fx-border-radius: 14;" +
                 "-fx-border-color: rgba(173,219,255,0.18);");
         renderAmmoCircle(preview, null);
         return box;
     }
 
     private void styleHudButton(Button button, String background, String textColor) {
-        button.setMinWidth(HUD_BUTTON_WIDTH);
-        button.setPrefWidth(HUD_BUTTON_WIDTH);
-        button.setMaxWidth(HUD_BUTTON_WIDTH);
-        button.setStyle("-fx-background-radius: 8; -fx-padding: 9 16 9 16;" +
+        var buttonWidth = Bindings.when(compactHud).then(96.0).otherwise(HUD_BUTTON_WIDTH);
+        button.minWidthProperty().bind(buttonWidth);
+        button.prefWidthProperty().bind(buttonWidth);
+        button.maxWidthProperty().bind(buttonWidth);
+        button.setStyle("-fx-background-radius: 8; -fx-padding: 9 8 9 8;" +
                 "-fx-background-color: " + background + "; -fx-text-fill: " + textColor + ";" +
                 "-fx-font-family: 'Verdana'; -fx-font-size: 13px; -fx-font-weight: bold;");
     }
@@ -386,7 +431,11 @@ public final class GameController {
 
         playfield.setOnMouseClicked(event -> {
             if (event.isStillSincePress()) {
-                triggerShot();
+                if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                    swapAmmo();
+                } else if (event.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                    triggerShot();
+                }
             }
         });
 
@@ -396,6 +445,8 @@ public final class GameController {
                 case LEFT, A -> adjustAim(KEYBOARD_AIM_STEP);
                 case RIGHT, D -> adjustAim(-KEYBOARD_AIM_STEP);
                 case R -> restartCampaign();
+                case X -> swapAmmo();
+                case P, ESCAPE -> togglePause();
                 default -> {
                 }
             }
@@ -413,8 +464,8 @@ public final class GameController {
             stars.add(new Star(
                     0.04 + random.nextDouble() * 0.92,
                     0.04 + random.nextDouble() * 0.90,
-                    1.2 + random.nextDouble() * 2.2,
-                    0.22 + random.nextDouble() * 0.45
+                    0.6 + random.nextDouble() * 1.2,
+                    0.15 + random.nextDouble() * 0.35
             ));
         }
     }
@@ -423,61 +474,103 @@ public final class GameController {
         backdropLayer.getChildren().clear();
         backdropRect.setFill(new LinearGradient(
                 0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.web("#06101b")),
-                new Stop(0.55, Color.web("#040b14")),
-                new Stop(1, Color.web("#02060d"))
+                new Stop(0, Color.web("#11162e")),
+                new Stop(0.55, Color.web("#0a1424")),
+                new Stop(1, Color.web("#080f1e"))
         ));
         backdropLayer.getChildren().add(backdropRect);
 
-        Circle glowLeft = new Circle(width * 0.18, height * 0.18, Math.min(width, height) * 0.18);
-        glowLeft.setFill(Color.web("#0d2947", 0.35));
-        Circle glowRight = new Circle(width * 0.82, height * 0.30, Math.min(width, height) * 0.16);
-        glowRight.setFill(Color.web("#18313d", 0.25));
+        Circle glowLeft = new Circle(width * 0.22, height * 0.28, Math.min(width, height) * 0.5);
+        glowLeft.setFill(new RadialGradient(0, 0, .5, .5, .5, true, CycleMethod.NO_CYCLE,
+                new Stop(0, Color.web("#7359b9", .19)), new Stop(1, Color.TRANSPARENT)));
+        Circle glowRight = new Circle(width * 0.8, height * 0.64, Math.min(width, height) * 0.42);
+        glowRight.setFill(new RadialGradient(0, 0, .5, .5, .5, true, CycleMethod.NO_CYCLE,
+                new Stop(0, Color.web("#36a5af", .11)), new Stop(1, Color.TRANSPARENT)));
         backdropLayer.getChildren().addAll(glowLeft, glowRight);
+
+        for (int i = 0; i < 3; i++) {
+            Ellipse orbit = new Ellipse(width / 2, height * .48, width * (.31 + i * .055), height * .22);
+            orbit.setFill(Color.TRANSPARENT);
+            orbit.setStroke(Color.web("#b0b9ef", .055));
+            orbit.setRotate(-28);
+            backdropLayer.getChildren().add(orbit);
+        }
 
         for (Star star : stars) {
             Circle node = new Circle(star.nx() * width, star.ny() * height, star.radius(), Color.web("#dff6ff", star.opacity()));
             backdropLayer.getChildren().add(node);
         }
+        double left = gridLeftPadding(width) - BUBBLE_RADIUS;
+        double right = gridLeftPadding(width) + GRID_COLUMNS * 2 * BUBBLE_RADIUS;
+        double top = GRID_TOP_PADDING - BUBBLE_RADIUS;
+        Rectangle arena = new Rectangle(left, top, right - left, Math.max(0, height - 28 - top));
+        arena.setFill(new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
+                new Stop(0, Color.web("#526388", .09)), new Stop(1, Color.web("#071323", .16))));
+        backdropLayer.getChildren().add(arena);
+        for (Line rail : List.of(new Line(left, height - 28, left, top),
+                new Line(left, top, right, top), new Line(right, top, right, height - 28))) {
+            rail.setStroke(Color.web("#96b8ef", 0.4));
+            rail.setStrokeWidth(1.5);
+            backdropLayer.getChildren().add(rail);
+        }
+        for (double x : new double[]{left, right}) {
+            Circle cap = new Circle(x, top, 3, Color.web("#d0c0ff"));
+            backdropLayer.getChildren().add(cap);
+            for (int tick = 0; tick < 5; tick++) {
+                double y = top + 60 + tick * 80;
+                if (y < height - 28) {
+                    Line mark = new Line(x - 3, y, x + 3, y);
+                    mark.setStroke(Color.web("#99b6e5", .5));
+                    backdropLayer.getChildren().add(mark);
+                }
+            }
+        }
+        sectorText.setFont(Font.font("Verdana", FontWeight.BOLD, 10));
+        sectorText.setFill(Color.web("#b7a6e5"));
+        sectorText.setX(left);
+        sectorText.setY(top - 18);
+        remainingText.setFont(Font.font("Verdana", FontWeight.BOLD, 10));
+        remainingText.setFill(Color.web("#9aafc9"));
+        remainingText.setX(right - 64);
+        remainingText.setY(top - 18);
+        backdropLayer.getChildren().addAll(sectorText, remainingText);
     }
 
     private void positionDangerLine(double width, double height) {
         double y = bottomBoundary(height);
-        dangerLine.setStartX(24);
-        dangerLine.setEndX(width - 24);
+        dangerLine.setStartX(gridLeftPadding(width) - BUBBLE_RADIUS);
+        dangerLine.setEndX(gridLeftPadding(width) + GRID_COLUMNS * 2 * BUBBLE_RADIUS);
         dangerLine.setStartY(y);
         dangerLine.setEndY(y);
     }
 
     private void update(double deltaSeconds) {
-        if (projectile == null) {
+        if (phase == Phase.PAUSED) return;
+        effects.advance(deltaSeconds);
+        if (projectile == null || phase != Phase.PLAYING) {
             return;
         }
 
-        double remaining = deltaSeconds;
-        double sliceSeconds = MAX_PROJECTILE_STEP / PROJECTILE_SPEED;
-        while (remaining > 0 && projectile != null) {
-            double slice = Math.min(remaining, sliceSeconds);
-            ProjectilePhysics.AdvanceResult result = ProjectilePhysics.advance(
-                    projectile,
-                    slice,
-                    playfieldWidth(),
-                    BUBBLE_RADIUS,
-                    grid.anchoredBubbles()
-            );
+        effects.trail(projectile);
+        ProjectilePhysics.AdvanceResult result = ProjectilePhysics.advance(
+                projectile, deltaSeconds, grid.projectileBounds(), BUBBLE_RADIUS, grid.anchoredBubbles());
 
-            if (result.bounced()) {
-                playSound(engine -> engine.playBounce());
-            }
-            if (result.anchored()) {
-                anchorProjectile(result.projectile(), result.anchorHint());
-                return;
-            }
-
-            projectile = result.projectile();
-            updateProjectileNode();
-            remaining -= slice;
+        if (result.bounced()) {
+            shotRicochet = true;
+            var bounds = grid.projectileBounds();
+            double wallX = projectile.vx() < 0 ? bounds.minX() : bounds.maxX();
+            double time = projectile.vx() == 0 ? 0 : Math.max(0, (wallX - projectile.x()) / projectile.vx());
+            effects.ring(wallX + (projectile.vx() < 0 ? -BUBBLE_RADIUS : BUBBLE_RADIUS),
+                    projectile.y() + projectile.vy() * time, Color.web("#ffe6b0"));
+            playSound(engine -> engine.playBounce());
         }
+        if (result.anchored()) {
+            anchorProjectile(result.projectile(), result.anchorHint());
+            return;
+        }
+
+        projectile = result.projectile();
+        updateProjectileNode();
     }
 
     private void triggerShot() {
@@ -490,6 +583,7 @@ public final class GameController {
         }
 
         projectile = cannon.fire(currentAmmo, BUBBLE_RADIUS, PROJECTILE_SPEED);
+        shotRicochet = false;
         projectileNode = projectile.asCircle();
         bubbleLayer.getChildren().add(projectileNode);
         updateCannonVisual();
@@ -543,13 +637,25 @@ public final class GameController {
             }
 
             combo++;
-            int gained = (cluster.size() * 90) + (floating.size() * 120) + combo * 35;
+            ShotReward reward = ShotReward.calculate(cluster.size(), floating.size(), combo, shotRicochet);
+            int gained = reward.total();
             int removedCount = cluster.size() + floating.size();
             score += gained;
             misses = 0;
-            statusLabel.setText("Burst +" + gained + ". Combo x" + combo + ".");
+            statusLabel.setText("Burst +" + gained + " · Combo x" + combo
+                    + (reward.ricochetBonus() > 0 ? " · Bank +150" : "")
+                    + (reward.avalancheBonus() > 0 ? " · Drop +250" : ""));
+            cluster.forEach(effects::burst);
+            floating.forEach(effects::drop);
+            effects.caption("+" + gained + "  /  COMBO " + combo, playfieldWidth() / 2,
+                    Math.min(anchored.y() + 70, bottomBoundary(playfieldHeight()) - 40), Color.web("#fff0c9"));
+            if (reward.ricochetBonus() > 0 || reward.avalancheBonus() > 0) {
+                effects.caption(reward.avalancheBonus() > 0 ? "AVALANCHE +250" : "BANK SHOT +150",
+                        playfieldWidth() / 2, bottomBoundary(playfieldHeight()) - 12, Color.web("#a5f4ee"));
+            }
             playSound(engine -> engine.playPop(removedCount));
         } else {
+            effects.ring(anchored.x(), anchored.y(), anchored.color().toFxColor());
             combo = 0;
             misses++;
             statusLabel.setText("No burst. Ceiling pressure " + misses + " / " + MISSES_PER_DROP + ".");
@@ -576,10 +682,9 @@ public final class GameController {
             phase = Phase.TRANSITION;
             showBanner("Stage Clear", Color.web("#b8f1ff"));
             playSound(engine -> engine.playStageClear());
-            PauseTransition pause = new PauseTransition(Duration.millis(650));
             int nextStage = stageNumber + 1;
-            pause.setOnFinished(event -> loadStage(nextStage, false));
-            pause.play();
+            stageTransition.setOnFinished(event -> loadStage(nextStage, false));
+            stageTransition.playFromStart();
             updateHud();
             return;
         }
@@ -596,6 +701,8 @@ public final class GameController {
     }
 
     private void renderBoard() {
+        int remaining = grid.anchoredBubbles().size();
+        remainingText.setText(remaining + (remaining == 1 ? " ORB" : " ORBS"));
         bubbleLayer.getChildren().clear();
         for (Bubble bubble : grid.anchoredBubbles()) {
             bubbleLayer.getChildren().add(bubble.asCircle());
@@ -637,13 +744,15 @@ public final class GameController {
         }
 
         Bubble probe = cannon.fire(currentAmmo, BUBBLE_RADIUS, PROJECTILE_SPEED);
-        for (int i = 0; i < 140; i++) {
+        List<Bubble> obstacles = grid.anchoredBubbles();
+        int steps = (int) Math.ceil((probe.y() - GRID_TOP_PADDING) / -probe.vy() / GUIDE_SLICE_SECONDS) + 1;
+        for (int i = 0; i < steps; i++) {
             ProjectilePhysics.AdvanceResult result = ProjectilePhysics.advance(
                     probe,
                     GUIDE_SLICE_SECONDS,
-                    playfieldWidth(),
+                    grid.projectileBounds(),
                     BUBBLE_RADIUS,
-                    grid == null ? List.of() : grid.anchoredBubbles()
+                    obstacles
             );
             probe = result.projectile();
 
@@ -652,9 +761,14 @@ public final class GameController {
             guideLayer.getChildren().add(marker);
 
             if (result.anchored()) {
-                Circle endMarker = new Circle(probe.x(), probe.y(), 5.0, Color.web("#ffd67a"));
-                endMarker.setOpacity(0.9);
-                guideLayer.getChildren().add(endMarker);
+                grid.attachmentCell(probe, result.anchorHint()).ifPresent(cell -> {
+                    Circle landing = new Circle(grid.cellCenterX(cell.row(), cell.column()),
+                            grid.cellCenterY(cell.row()), BUBBLE_RADIUS);
+                    landing.setFill(currentAmmo.color().toFxColor().deriveColor(0, 1, 1, 0.25));
+                    landing.setStroke(Color.web("#ffd67a"));
+                    landing.getStrokeDashArray().addAll(4.0, 4.0);
+                    guideLayer.getChildren().add(landing);
+                });
                 break;
             }
         }
@@ -669,6 +783,11 @@ public final class GameController {
     }
 
     private void loadStage(int stage, boolean resetScore) {
+        effects.clear();
+        shotRicochet = false;
+        stageTransition.stop();
+        if (bannerFade != null) bannerFade.stop();
+        bannerLabel.setOpacity(0);
         stageNumber = stage;
         if (resetScore) {
             score = 0;
@@ -697,8 +816,7 @@ public final class GameController {
         updateTrajectoryPreview();
         lastTickNanos = 0L;
 
-        statusLabel.setText("Aim with mouse or ←/A and →/D. Shoot with click or Space. "
-                + MISSES_PER_DROP + " misses add a row.");
+        statusLabel.setText("Click / Space to shoot. " + MISSES_PER_DROP + " misses add a row.");
         if (!resetScore) {
             showBanner("Stage " + stageNumber, Color.web("#c2f6ff"));
         }
@@ -706,6 +824,31 @@ public final class GameController {
 
     private void restartCampaign() {
         loadStage(1, true);
+    }
+
+    private void swapAmmo() {
+        if (phase != Phase.PLAYING || projectile != null) return;
+        BubbleAmmo previous = currentAmmo;
+        currentAmmo = nextAmmo;
+        nextAmmo = previous;
+        updateHud();
+        updateCannonVisual();
+        updateTrajectoryPreview();
+    }
+
+    private void togglePause() {
+        if (phase == Phase.PLAYING) {
+            phase = Phase.PAUSED;
+            if (bannerFade != null) bannerFade.stop();
+            bannerLabel.setText("Paused");
+            bannerLabel.setOpacity(1);
+        } else if (phase == Phase.PAUSED) {
+            phase = Phase.PLAYING;
+            bannerLabel.setOpacity(0);
+            lastTickNanos = 0;
+        }
+        updateHud();
+        updateTrajectoryPreview();
     }
 
     private BubbleAmmo rollAmmo() {
@@ -718,8 +861,14 @@ public final class GameController {
     }
 
     private void updateHud() {
+        records.record(score);
+        recordLabel.setText("BEST " + compactNumber(records.best()));
+        recordTooltip.setText("Best score: " + records.best() + (records.saved() ? " · saved locally" : " · session only; storage unavailable"));
+        recordLabel.setTextFill(Color.web(records.saved() ? "#b9a1f4" : "#ffb88c"));
+        sectorText.setText(String.format("SECTOR %02d  /  COMET BLOOM", stageNumber));
         stageLabel.setText("Stage " + stageNumber + "  •  " + stageLayout.title());
-        scoreLabel.setText(String.valueOf(score));
+        scoreLabel.setText(compactNumber(score));
+        scoreLabel.setTooltip(new Tooltip(Integer.toString(score)));
         comboLabel.setText("x" + Math.max(1, combo));
         pressureLabel.setText(misses + " / " + MISSES_PER_DROP);
         objectiveLabel.setText(stageLayout.subtitle());
@@ -730,6 +879,9 @@ public final class GameController {
         nextLabel.setText(nextAmmo == null ? "EMPTY" : nextAmmo.displayName());
 
         soundButton.setText(soundEnabled ? "Sound: On" : "Sound: Off");
+        pauseButton.setText(phase == Phase.PAUSED ? "Resume" : "Pause");
+        pauseButton.setDisable(phase == Phase.TRANSITION || phase == Phase.LOST);
+        updateCannonVisual();
     }
 
     private void renderAmmoCircle(Circle circle, BubbleAmmo ammo) {
@@ -748,10 +900,11 @@ public final class GameController {
         bannerLabel.setText(text);
         bannerLabel.setTextFill(color);
         bannerLabel.setOpacity(1.0);
-        FadeTransition fade = new FadeTransition(Duration.millis(850), bannerLabel);
-        fade.setFromValue(1.0);
-        fade.setToValue(0.0);
-        fade.play();
+        if (bannerFade != null) bannerFade.stop();
+        bannerFade = new FadeTransition(Duration.millis(850), bannerLabel);
+        bannerFade.setFromValue(1.0);
+        bannerFade.setToValue(0.0);
+        bannerFade.play();
     }
 
     private void toggleSound() {
@@ -767,7 +920,7 @@ public final class GameController {
 
     private double gridLeftPadding(double width) {
         double boardWidth = (GRID_COLUMNS - 1) * (BUBBLE_RADIUS * 2.0) + (BUBBLE_RADIUS * 3.0);
-        return Math.max(BUBBLE_RADIUS, (width - boardWidth) / 2.0);
+        return Math.max(BUBBLE_RADIUS, (width - boardWidth) / 2.0 + BUBBLE_RADIUS);
     }
 
     private double playfieldWidth() {
@@ -780,5 +933,11 @@ public final class GameController {
 
     private double bottomBoundary(double height) {
         return height - DANGER_MARGIN;
+    }
+
+    private static String compactNumber(int value) {
+        if (value < 10_000) return Integer.toString(value);
+        if (value < 1_000_000) return String.format(java.util.Locale.ROOT, "%.1fk", value / 1000.0);
+        return String.format(java.util.Locale.ROOT, "%.1fm", value / 1_000_000.0);
     }
 }

@@ -8,12 +8,20 @@ import java.util.List;
  */
 final class ProjectilePhysics {
 
-    private static final double MIN_TRAVEL_RATIO = 1e-6;
-    private static final double MIN_TIME_SLICE = 1e-6;
     private static final double COLLISION_TIME_EPSILON = 1e-8;
     private static final int MAX_COLLISIONS_PER_ADVANCE = 4_096;
 
     private ProjectilePhysics() {
+    }
+
+    /** Limits for the projectile CENTER, shared with grid and guide rendering. */
+    record Bounds(double minX, double maxX, double ceilingY) {
+        Bounds {
+            if (!Double.isFinite(minX) || !Double.isFinite(maxX)
+                    || !Double.isFinite(ceilingY) || maxX <= minX) {
+                throw new IllegalArgumentException("Invalid arena bounds");
+            }
+        }
     }
 
     static AdvanceResult advance(
@@ -23,13 +31,27 @@ final class ProjectilePhysics {
             double bubbleRadius,
             List<Bubble> anchoredBubbles
     ) {
-        Bubble current = projectile;
+        return advance(projectile, deltaSeconds,
+                new Bounds(bubbleRadius, playfieldWidth - bubbleRadius, bubbleRadius),
+                bubbleRadius, anchoredBubbles);
+    }
+
+    static AdvanceResult advance(Bubble projectile, double deltaSeconds, Bounds bounds,
+                                 double bubbleRadius, List<Bubble> anchoredBubbles) {
+        if (!Double.isFinite(deltaSeconds) || deltaSeconds < 0 || !Double.isFinite(bubbleRadius)
+                || bubbleRadius <= 0 || !Double.isFinite(projectile.x()) || !Double.isFinite(projectile.y())
+                || !Double.isFinite(projectile.vx()) || !Double.isFinite(projectile.vy())) {
+            throw new IllegalArgumentException("Invalid projectile step");
+        }
+        Bubble current = projectile.withPosition(
+                Math.clamp(projectile.x(), bounds.minX(), bounds.maxX()),
+                Math.max(projectile.y(), bounds.ceilingY()));
         boolean bounced = false;
         double remaining = deltaSeconds;
         int guard = 0;
 
-        while (remaining > MIN_TIME_SLICE && guard++ < MAX_COLLISIONS_PER_ADVANCE) {
-            Collision collision = detectCollision(current, remaining, playfieldWidth, bubbleRadius, anchoredBubbles);
+        while (remaining > 0 && guard++ < MAX_COLLISIONS_PER_ADVANCE) {
+            Collision collision = detectCollision(current, remaining, bounds, bubbleRadius, anchoredBubbles);
             switch (collision) {
                 case Collision.Wall wall -> {
                     double timeSpent = remaining * wall.travelRatio();
@@ -38,7 +60,7 @@ final class ProjectilePhysics {
                             .withVelocity(wall.reflectedVx(), current.vy());
                     bounced = true;
 
-                    if (timeLeft <= MIN_TIME_SLICE) {
+                    if (timeLeft <= 0) {
                         return AdvanceResult.inFlight(current, bounced);
                     }
                     remaining = timeLeft;
@@ -64,7 +86,7 @@ final class ProjectilePhysics {
     private static Collision detectCollision(
             Bubble projectile,
             double deltaSeconds,
-            double playfieldWidth,
+            Bounds bounds,
             double bubbleRadius,
             List<Bubble> anchoredBubbles
     ) {
@@ -75,18 +97,18 @@ final class ProjectilePhysics {
         double bestT = Double.POSITIVE_INFINITY;
         Collision bestCollision = null;
 
-        if (Math.abs(deltaX) > MIN_TRAVEL_RATIO) {
+        if (deltaX != 0) {
             if (deltaX < 0) {
-                double t = (bubbleRadius - startX) / deltaX;
-                if (t > MIN_TRAVEL_RATIO && t <= 1.0) {
+                double t = (bounds.minX() - startX) / deltaX;
+                if (t >= 0 && t <= 1.0) {
                     double impactY = startY + deltaY * t;
                     bestT = t;
-                    bestCollision = new Collision.Wall(bubbleRadius, impactY, Math.abs(projectile.vx()), t);
+                    bestCollision = new Collision.Wall(bounds.minX(), impactY, Math.abs(projectile.vx()), t);
                 }
             } else {
-                double wallX = playfieldWidth - bubbleRadius;
+                double wallX = bounds.maxX();
                 double t = (wallX - startX) / deltaX;
-                if (t > MIN_TRAVEL_RATIO && t <= 1.0) {
+                if (t >= 0 && t <= 1.0) {
                     double impactY = startY + deltaY * t;
                     bestT = t;
                     bestCollision = new Collision.Wall(wallX, impactY, -Math.abs(projectile.vx()), t);
@@ -94,20 +116,20 @@ final class ProjectilePhysics {
             }
         }
 
-        if (Math.abs(deltaY) > MIN_TRAVEL_RATIO && deltaY < 0) {
-            double t = (bubbleRadius - startY) / deltaY;
+        if (deltaY < 0 || startY <= bounds.ceilingY()) {
+            double t = startY <= bounds.ceilingY() ? 0 : (bounds.ceilingY() - startY) / deltaY;
             // A ceiling or bubble contact wins an exact tie with a side wall.
             // The projectile must stick to the board rather than reflect first
             // and resolve a second, unrelated collision.
-            if (t > MIN_TRAVEL_RATIO && t <= 1.0 && t <= bestT + COLLISION_TIME_EPSILON) {
+            if (t >= 0 && t <= 1.0 && t <= bestT + COLLISION_TIME_EPSILON) {
                 double impactX = startX + deltaX * t;
                 bestT = t;
-                bestCollision = new Collision.Grid(impactX, bubbleRadius, null, t);
+                bestCollision = new Collision.Grid(impactX, bounds.ceilingY(), null, t);
             }
         }
 
         double a = deltaX * deltaX + deltaY * deltaY;
-        if (a <= MIN_TRAVEL_RATIO) {
+        if (a == 0) {
             return bestCollision;
         }
 
@@ -138,7 +160,7 @@ final class ProjectilePhysics {
             }
 
             double t = entryT;
-            if (t <= MIN_TRAVEL_RATIO || t > 1.0 || !isEarlierGridHit(t, other.gridPosition(), bestT, bestCollision)) {
+            if (t < 0 || t > 1.0 || !isEarlierGridHit(t, other.gridPosition(), bestT, bestCollision)) {
                 continue;
             }
 
